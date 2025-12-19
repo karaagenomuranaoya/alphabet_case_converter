@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://alphabet-case-converter.onrender.com/sitemap.xml
