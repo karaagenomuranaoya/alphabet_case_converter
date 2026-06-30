@@ -15,7 +15,7 @@
 
     <style>
         textarea {
-            transition: border-color 0.2s ease, shadow 0.2s ease;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
 
         @keyframes fadeIn {
@@ -34,12 +34,11 @@
             animation: fadeIn 0.3s ease-out forwards;
         }
 
-        /* 出力エリアの背景を少し変えて「結果」であることを強調 */
         .result-area {
             background-color: #f8fafc;
-            /* slate-50 */
         }
     </style>
+
     <meta name="google-site-verification" content="GuEQO4WrWAdbrhzwdTWeoU2eJD0Y9CkFLsVd7JGeRKM" />
 </head>
 
@@ -58,18 +57,22 @@
             </a>
             <p class="mt-6 text-slate-600 text-sm leading-relaxed">
                 元の文章はそのままに、アルファベットの大文字・小文字を爆速で変換します。<br class="hidden md:block">
-                データはサーバーへ送信されず、ブラウザ上で安全に処理されます。
+                入力内容はブラウザのローカルストレージに下書き保存され、サーバーへ送信されません。
             </p>
         </header>
 
         <div class="animate-in space-y-6">
             <div class="space-y-2">
-                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Input</label>
+                <div class="flex items-center justify-between">
+                    <label class="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Input</label>
+                    <span id="draft-status" class="text-[11px] text-slate-400">下書き保存済み</span>
+                </div>
+
                 <div
                     class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 focus-within:border-blue-300 focus-within:shadow-md transition-all">
                     <textarea id="text-input"
                         class="w-full min-h-[140px] bg-transparent focus:outline-none text-slate-700 leading-relaxed placeholder:text-slate-300 resize-none"
-                        placeholder="ここにアルファベットを入力..." oninput="autoTransform()"></textarea>
+                        placeholder="ここにアルファベットを入力..."></textarea>
                 </div>
             </div>
 
@@ -132,7 +135,7 @@
                 <div>
                     <h2 class="font-bold text-slate-700 mb-2 italic tracking-wider">Security</h2>
                     <p class="text-red-400 font-bold mb-2">個人情報や暗証番号は絶対に入力しないでください。</p>
-                    <p>データはブラウザ内でのみ処理され、サーバーへ送信されることはありません。管理は自己責任でお願いいたします。</p>
+                    <p>入力内容はブラウザ内のローカルストレージに保存されます。共有端末では利用後に消去してください。</p>
                 </div>
                 <div>
                     <h2 class="font-bold text-slate-700 mb-2 italic tracking-wider">Support</h2>
@@ -149,15 +152,32 @@
     <script>
         lucide.createIcons();
 
+        const STORAGE_KEY = 'nomutools-case-swap-draft';
+
         const inputEl = document.getElementById('text-input');
         const outputEl = document.getElementById('text-output');
+        const draftStatusEl = document.getElementById('draft-status');
+
         let currentMode = 'upper';
+        let saveTimer = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            restoreDraft();
+            autoTransform();
+            updateModeButtons();
+
+            inputEl.addEventListener('input', () => {
+                autoTransform();
+                saveDraftSoon();
+            });
+        });
 
         function setMode(mode) {
             currentMode = mode;
             autoTransform();
+            saveDraft();
+            updateModeButtons();
 
-            // 出力エリアを強調するアニメーション
             outputEl.parentElement.classList.add('border-blue-300', 'bg-blue-50/30');
             setTimeout(() => {
                 outputEl.parentElement.classList.remove('border-blue-300', 'bg-blue-50/30');
@@ -166,24 +186,92 @@
 
         function autoTransform() {
             const text = inputEl.value;
+
             if (!text) {
                 outputEl.value = '';
                 return;
             }
 
-            let result = '';
             if (currentMode === 'swap') {
-                result = text.split('').map(c => {
-                    if (c === c.toUpperCase()) return c.toLowerCase();
-                    return c.toUpperCase();
+                outputEl.value = text.split('').map((char) => {
+                    const upper = char.toUpperCase();
+                    const lower = char.toLowerCase();
+
+                    if (char === upper && char !== lower) {
+                        return lower;
+                    }
+
+                    if (char === lower && char !== upper) {
+                        return upper;
+                    }
+
+                    return char;
                 }).join('');
-            } else if (currentMode === 'upper') {
-                result = text.toUpperCase();
-            } else if (currentMode === 'lower') {
-                result = text.toLowerCase();
+                return;
             }
 
-            outputEl.value = result;
+            if (currentMode === 'upper') {
+                outputEl.value = text.toUpperCase();
+                return;
+            }
+
+            if (currentMode === 'lower') {
+                outputEl.value = text.toLowerCase();
+            }
+        }
+
+        function saveDraftSoon() {
+            draftStatusEl.textContent = '下書き保存中...';
+
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(() => {
+                saveDraft();
+            }, 300);
+        }
+
+        function saveDraft() {
+            const draft = {
+                text: inputEl.value,
+                mode: currentMode,
+                savedAt: new Date().toISOString()
+            };
+
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+            draftStatusEl.textContent = inputEl.value ? '下書き保存済み' : '下書きは空です';
+        }
+
+        function restoreDraft() {
+            const savedDraft = localStorage.getItem(STORAGE_KEY);
+
+            if (!savedDraft) {
+                draftStatusEl.textContent = '下書きは空です';
+                return;
+            }
+
+            try {
+                const draft = JSON.parse(savedDraft);
+
+                inputEl.value = draft.text || '';
+                currentMode = draft.mode || 'upper';
+                draftStatusEl.textContent = inputEl.value ? '下書きを復元しました' : '下書きは空です';
+            } catch (error) {
+                localStorage.removeItem(STORAGE_KEY);
+                draftStatusEl.textContent = '下書きは空です';
+            }
+        }
+
+        function updateModeButtons() {
+            const buttons = {
+                upper: document.getElementById('btn-upper'),
+                lower: document.getElementById('btn-lower'),
+                swap: document.getElementById('btn-swap')
+            };
+
+            Object.keys(buttons).forEach((mode) => {
+                buttons[mode].classList.toggle('ring-4', currentMode === mode);
+                buttons[mode].classList.toggle('ring-offset-2', currentMode === mode);
+                buttons[mode].classList.toggle('ring-slate-300', currentMode === mode);
+            });
         }
 
         async function copyResult() {
@@ -192,10 +280,13 @@
 
             try {
                 await navigator.clipboard.writeText(text);
+
                 const btn = document.getElementById('copy-btn');
                 const originalInner = btn.innerHTML;
+
                 btn.innerHTML = '<i data-lucide="check" class="text-green-400"></i> コピーしました！';
                 lucide.createIcons();
+
                 setTimeout(() => {
                     btn.innerHTML = originalInner;
                     lucide.createIcons();
@@ -209,6 +300,9 @@
             if ((inputEl.value || outputEl.value) && confirm('内容を消去しますか？')) {
                 inputEl.value = '';
                 outputEl.value = '';
+
+                localStorage.removeItem(STORAGE_KEY);
+                draftStatusEl.textContent = '下書きを削除しました';
             }
         }
     </script>
